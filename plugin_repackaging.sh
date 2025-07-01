@@ -34,11 +34,21 @@ set_platform_tags() {
 	local platform=$1
 	case "$platform" in
 		*"aarch64"*|*"arm64"*)
-			PLATFORM_TAGS="--platform=manylinux_2_17_aarch64 --platform=manylinux2014_aarch64 --platform=manylinux_2_28_aarch64 --platform=manylinux_2_39_aarch64"
+			PLATFORM_TAGS=(
+				"--platform=manylinux_2_17_aarch64"
+				"--platform=manylinux2014_aarch64"
+				"--platform=manylinux_2_28_aarch64"
+				"--platform=manylinux_2_39_aarch64"
+			)
 			USE_DOCKER=false
 			;;
 		*"x86_64"*|*"amd64"*)
-			PLATFORM_TAGS="--platform=manylinux_2_17_x86_64 --platform=manylinux2014_x86_64 --platform=manylinux_2_28_x86_64 --platform=manylinux_2_39_x86_64"
+			PLATFORM_TAGS=(
+				"--platform=manylinux_2_17_x86_64"
+				"--platform=manylinux2014_x86_64"
+				"--platform=manylinux_2_28_x86_64"
+				"--platform=manylinux_2_39_x86_64"
+			)
 			USE_DOCKER=false
 			;;
 		*)
@@ -119,17 +129,41 @@ repackage() {
 
 	echo "Repackaging ..."
 	cd ${PACKAGE_NAME}
-	rm -rf ./wheels
-	mkdir -p ./wheels
+	
+	# 创建临时wheels目录用于新包
+	rm -rf ./wheels_temp
+	mkdir -p ./wheels_temp
 
 	if [[ $USE_DOCKER == true ]]; then
 		echo "Using Docker to download packages..."
 		download_packages_in_docker "$(pwd)" "requirements.txt"
 	else
 		echo "Using local Python environment to download packages..."
-		pip download -r requirements.txt -d ./wheels --index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com --pre --only-binary=:all: ${PLATFORM_TAGS}
+		# 使用数组中的所有平台标签
+		if [ ${#PLATFORM_TAGS[@]} -gt 0 ]; then
+			pip download -r requirements.txt -d ./wheels_temp --index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com --pre --only-binary=:all: "${PLATFORM_TAGS[@]}"
+		else
+			# 如果没有指定平台，使用默认的 aarch64 平台标签
+			pip download -r requirements.txt -d ./wheels_temp --index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com --pre --only-binary=:all: \
+				--platform=manylinux_2_17_aarch64 \
+				--platform=manylinux2014_aarch64 \
+				--platform=manylinux_2_28_aarch64 \
+				--platform=manylinux_2_39_aarch64
+		fi
 	fi
-	if [[ $? -ne 0 ]]; then
+	
+	# 如果下载成功，合并wheels目录
+	if [[ $? -eq 0 ]]; then
+		# 如果原wheels目录不存在，重命名临时目录
+		if [[ ! -d ./wheels ]]; then
+			mv ./wheels_temp ./wheels
+		else
+			# 如果原wheels目录存在，合并内容
+			cp -rf ./wheels_temp/* ./wheels/
+			rm -rf ./wheels_temp
+		fi
+	else
+		rm -rf ./wheels_temp
 		exit 1
 	fi
 
