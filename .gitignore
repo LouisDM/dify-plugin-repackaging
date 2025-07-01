@@ -1,4 +1,30 @@
+# IDE and OS files
 .DS_Store
 .idea
 .vscode
 *.iml
+
+# Python virtual environment
+venv/
+env/
+ENV/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build and distribution
+dist/
+build/
+*.egg-info/
+
+# Plugin packages and temporary files
+*.difypkg
+*/wheels/
+*/requirements.txt.bak
+
+# Project specific directories
+json2chart/
+langgenius-google_*/
+svg_marker_dify_plugin_json/
