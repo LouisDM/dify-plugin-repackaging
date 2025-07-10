@@ -51,6 +51,11 @@ set_platform_tags() {
 			)
 			USE_DOCKER=false
 			;;
+		*"manylinux"*)
+			# 如果是具体的manylinux平台标签，就只使用这一个
+			PLATFORM_TAGS=("--platform=$platform")
+			USE_DOCKER=false
+			;;
 		*)
 			echo "Unsupported platform: $platform"
 			exit 1
@@ -74,7 +79,7 @@ FROM ${DOCKER_IMAGE}
 RUN pip install --upgrade pip
 WORKDIR /app
 COPY ${requirements_file} .
-RUN pip download -r requirements.txt -d /wheels ${PLATFORM_TAGS} --index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com --pre --only-binary=:all:
+RUN pip download -r requirements.txt -d /wheels ${PLATFORM_TAGS[@]} --index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com --pre --only-binary=:all:
 EOF
 	
 	# 构建 Docker 镜像（带重试）
@@ -141,9 +146,11 @@ repackage() {
 		echo "Using local Python environment to download packages..."
 		# 使用数组中的所有平台标签
 		if [ ${#PLATFORM_TAGS[@]} -gt 0 ]; then
+			echo "Using platform tags: ${PLATFORM_TAGS[@]}"
 			pip download -r requirements.txt -d ./wheels_temp --index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com --pre --only-binary=:all: "${PLATFORM_TAGS[@]}"
 		else
 			# 如果没有指定平台，使用默认的 aarch64 平台标签
+			echo "Using default platform tags"
 			pip download -r requirements.txt -d ./wheels_temp --index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com --pre --only-binary=:all: \
 				--platform=manylinux_2_17_aarch64 \
 				--platform=manylinux2014_aarch64 \
@@ -154,15 +161,23 @@ repackage() {
 	
 	# 如果下载成功，合并wheels目录
 	if [[ $? -eq 0 ]]; then
+		echo "Package download successful"
 		# 如果原wheels目录不存在，重命名临时目录
 		if [[ ! -d ./wheels ]]; then
+			echo "No existing wheels directory, using new downloads"
 			mv ./wheels_temp ./wheels
 		else
+			echo "Merging with existing wheels directory"
 			# 如果原wheels目录存在，合并内容
 			cp -rf ./wheels_temp/* ./wheels/
 			rm -rf ./wheels_temp
 		fi
+		
+		# 显示wheels目录大小
+		echo "Wheels directory size:"
+		du -sh ./wheels
 	else
+		echo "Package download failed"
 		rm -rf ./wheels_temp
 		exit 1
 	fi
@@ -176,6 +191,17 @@ repackage() {
 		rm -f requirements.txt.bak
 	fi
 
+	# 确保wheels目录不被忽略 - 创建.difyignore文件
+	if [ -f .gitignore ] && grep -q "wheels/" .gitignore; then
+		echo "Found wheels/ in .gitignore, creating .difyignore to include wheels directory"
+		# 复制.gitignore到.difyignore，但移除wheels/行
+		grep -v "wheels/" .gitignore > .difyignore
+		# 添加.git/忽略
+		echo "" >> .difyignore
+		echo "# Git" >> .difyignore
+		echo ".git/" >> .difyignore
+	fi
+
 	IGNORE_PATH=.difyignore
 	if [ ! -f .difyignore ]; then
 		IGNORE_PATH=.gitignore
@@ -183,8 +209,18 @@ repackage() {
 
 	cd ${CURR_DIR}
 	chmod 755 ${CURR_DIR}/${CMD_NAME}
+	
+	# 确保后缀包含offline
+	if [[ ! $PACKAGE_SUFFIX =~ "offline" ]]; then
+		PACKAGE_SUFFIX="offline-${PACKAGE_SUFFIX}"
+	fi
+	
 	${CURR_DIR}/${CMD_NAME} plugin package ${PACKAGE_NAME} -o ${PACKAGE_NAME}-${PACKAGE_SUFFIX}.difypkg
 	echo "Repackage success."
+	
+	# 显示最终包大小
+	echo "Final package size:"
+	ls -lh ${PACKAGE_NAME}-${PACKAGE_SUFFIX}.difypkg
 	exit 0
 }
 
@@ -238,7 +274,7 @@ fi
 
 PIP_PLATFORM=""
 PACKAGE_SUFFIX="offline"
-PLATFORM_TAGS=""
+PLATFORM_TAGS=()
 USE_DOCKER=false
 DOCKER_IMAGE=""
 
